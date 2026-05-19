@@ -10,6 +10,8 @@
  *   - /memories/repo/    — Repo-scoped: stored in <project>/.opencode/memories/repo/
  */
 import { z } from "zod"
+import type { Plugin } from "@opencode-ai/plugin"
+import { tool } from "@opencode-ai/plugin"
 import path from "path"
 import fs from "fs/promises"
 import { existsSync, mkdirSync, statSync, readdirSync, rmSync, readFileSync } from "fs"
@@ -276,8 +278,8 @@ Commands (all supported for all scopes):
 
 // ─── Plugin entry ─────────────────────────────────────────────────────────────
 
-export const server = async ({ directory }: { directory: string; [key: string]: any }) => {
-  const projectDir = directory
+export const plugin: Plugin = async (_ctx: { directory?: string }) => {
+  const projectDir = _ctx.directory ?? process.cwd()
 
   function readExperimentalConfig(): Record<string, string> {
     try {
@@ -338,7 +340,7 @@ export const server = async ({ directory }: { directory: string; [key: string]: 
   return {
     // ── Register the memory tool ──────────────────────────────────────────────
     tool: {
-      memory: {
+      memory: tool({
         description: MEMORY_DESCRIPTION,
         args: {
           command: z
@@ -555,7 +557,7 @@ export const server = async ({ directory }: { directory: string; [key: string]: 
             return "Error: " + (e?.message ?? String(e))
           }
         },
-      },
+      }),
     },
 
     // ── Inject memory context into system prompt ──────────────────────────────
@@ -576,3 +578,5 @@ export const server = async ({ directory }: { directory: string; [key: string]: 
     },
   }
 }
+
+export default plugin
