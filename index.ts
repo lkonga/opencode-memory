@@ -117,10 +117,28 @@ async function viewFile(real: string, virtPath: string, range?: [number, number]
   if (!stat) return "Error: path does not exist: " + virtPath
   if (stat.isDirectory()) {
     const entries = readdirSync(real, { withFileTypes: true })
-    const lines = entries.map((e) => {
-      const size = e.isDirectory() ? 0 : statSync(path.join(real, e.name)).size
-      return size + "\t" + (e.isDirectory() ? e.name + "/" : e.name)
+    const sorted = entries.sort((a, b) => {
+      if (a.isDirectory() && !b.isDirectory()) return -1
+      if (!a.isDirectory() && b.isDirectory()) return 1
+      return a.name.localeCompare(b.name)
     })
+    const lines: string[] = []
+    for (const e of sorted) {
+      const subPath = path.join(real, e.name)
+      const size = e.isDirectory() ? 0 : statSync(subPath).size
+      lines.push(size + "\t" + (e.isDirectory() ? e.name + "/" : e.name))
+      if (e.isDirectory()) {
+        try {
+          const sub = readdirSync(subPath, { withFileTypes: true })
+          for (const se of sub.slice(0, 10)) {
+            const subSubPath = path.join(subPath, se.name)
+            const subSize = se.isDirectory() ? 0 : statSync(subSubPath).size
+            lines.push(subSize + "\t  " + (se.isDirectory() ? se.name + "/" : se.name))
+          }
+          if (sub.length > 10) lines.push("0\t  ... (" + (sub.length - 10) + " more)")
+        } catch {}
+      }
+    }
     return lines.join("\n") || "(empty directory)"
   }
   const content = await fs.readFile(real, "utf8")
