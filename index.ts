@@ -281,7 +281,7 @@ Commands (all supported for all scopes):
 export const plugin: Plugin = async (_ctx: { directory?: string }) => {
   const projectDir = _ctx.directory ?? process.cwd()
 
-  function readExperimentalConfig(): Record<string, string> {
+  function readConfig(): Record<string, string> {
     try {
       const p = path.join(configDir(), "execsa-config.json")
       if (existsSync(p)) return JSON.parse(readFileSync(p, "utf-8"))
@@ -289,14 +289,18 @@ export const plugin: Plugin = async (_ctx: { directory?: string }) => {
     return {}
   }
 
-  const expCfg = readExperimentalConfig()
-  const experimentalEnabled = expCfg.experimental_features === "true"
+  const cfg = readConfig()
+  const debugEnabled = cfg.debug_logging === "true"
+
+  function log(...args: any[]) {
+    if (!debugEnabled) return
+    console.error("[memory-plugin]", ...args)
+  }
 
   const accessTimestamps = new Map<string, number>()
   let cleanupStarted = false
 
   function markAccessed(real: string) {
-    if (!experimentalEnabled) return
     accessTimestamps.set(real, Date.now())
   }
 
@@ -309,6 +313,7 @@ export const plugin: Plugin = async (_ctx: { directory?: string }) => {
     if (!existsSync(sessionBase)) return
     const now = Date.now()
     const entries = readdirSync(sessionBase, { withFileTypes: true })
+    let deleted = 0
     for (const entry of entries) {
       if (!entry.isDirectory()) continue
       const dirPath = path.join(sessionBase, entry.name)
@@ -316,16 +321,19 @@ export const plugin: Plugin = async (_ctx: { directory?: string }) => {
       if (now - lastAccess > RETENTION_MS) {
         rmSync(dirPath, { recursive: true, force: true })
         accessTimestamps.delete(dirPath)
+        deleted++
       } else {
         try {
           const sub = readdirSync(dirPath)
           if (sub.length === 0) {
             rmSync(dirPath, { recursive: true, force: true })
             accessTimestamps.delete(dirPath)
+            deleted++
           }
         } catch {}
       }
     }
+    if (deleted > 0) log(`cleaned ${deleted} stale session dirs`)
   }
 
   function startCleanup() {
@@ -335,7 +343,8 @@ export const plugin: Plugin = async (_ctx: { directory?: string }) => {
     try { cleanupStaleSessionDirs() } catch {}
   }
 
-  if (experimentalEnabled) startCleanup()
+  startCleanup()
+  log("plugin loaded")
 
   return {
     // ── Register the memory tool ──────────────────────────────────────────────
@@ -400,6 +409,7 @@ export const plugin: Plugin = async (_ctx: { directory?: string }) => {
             switch (cmd) {
               case "view": {
                 const p: string = args.path ?? "/memories/"
+                log("view", p)
                 const pathErr = validatePath(p)
                 if (pathErr) return pathErr
                 const { real } = resolvePath(p, sessionID, projectDir)
@@ -425,6 +435,7 @@ export const plugin: Plugin = async (_ctx: { directory?: string }) => {
               }
 
               case "create": {
+                log("create", args.path)
                 if (!args.path) return "Error: path is required for create"
                 if (args.file_text === undefined) return "Error: file_text is required for create"
                 const createPathErr = validatePath(args.path)
@@ -438,6 +449,7 @@ export const plugin: Plugin = async (_ctx: { directory?: string }) => {
               }
 
               case "str_replace": {
+                log("str_replace", args.path)
                 if (!args.path) return "Error: path is required for str_replace"
                 if (args.old_str === undefined) return "Error: old_str is required for str_replace"
                 if (args.new_str === undefined) return "Error: new_str is required for str_replace"
@@ -483,6 +495,7 @@ export const plugin: Plugin = async (_ctx: { directory?: string }) => {
               }
 
               case "insert": {
+                log("insert", args.path)
                 if (!args.path) return "Error: path is required for insert"
                 if (args.insert_line === undefined) return "Error: insert_line is required for insert"
                 const insertText = args.insert_text ?? args.new_str
@@ -516,6 +529,7 @@ export const plugin: Plugin = async (_ctx: { directory?: string }) => {
               }
 
               case "delete": {
+                log("delete", args.path)
                 if (!args.path) return "Error: path is required for delete"
                 const delPathErr = validatePath(args.path)
                 if (delPathErr) return delPathErr
@@ -529,6 +543,7 @@ export const plugin: Plugin = async (_ctx: { directory?: string }) => {
 
               case "rename": {
                 const oldPath = args.old_path ?? args.path
+                log("rename", oldPath, "->", args.new_path)
                 if (!oldPath) return "Error: old_path or path is required for rename"
                 if (!args.new_path) return "Error: new_path is required for rename"
                 const renOldErr = validatePath(oldPath)
@@ -551,9 +566,11 @@ export const plugin: Plugin = async (_ctx: { directory?: string }) => {
               }
 
               default:
+                log("unknown command", cmd)
                 return "Error: unknown command: " + cmd
             }
           } catch (e: any) {
+            log("execute error", e?.message ?? String(e))
             return "Error: " + (e?.message ?? String(e))
           }
         },
