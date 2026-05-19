@@ -12,7 +12,7 @@
 import { z } from "zod"
 import path from "path"
 import fs from "fs/promises"
-import { existsSync, mkdirSync, statSync, readdirSync, rmSync } from "fs"
+import { existsSync, mkdirSync, statSync, readdirSync, rmSync, readFileSync } from "fs"
 import os from "os"
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -233,14 +233,19 @@ const MEMORY_DESCRIPTION = `Manage a persistent memory system with three scopes 
 Memory is organized under /memories/ with three tiers:
 - \`/memories/\` — User memory: global persistent notes shared across all projects in this environment. Store cross-project preferences, common patterns, and general insights here.
 - \`/memories/session/\` — Session memory: notes scoped to the current conversation. Store task-specific context and in-progress notes here. Cleared after the conversation ends.
-- \`/memories/repo/\` — Repository memory: project-scoped persistent notes stored in the project's .opencode/ directory. Store codebase conventions, architecture decisions, build commands, verified practices, and project-specific facts here. These persist across sessions and are specific to this project. All commands are supported.
+- \`/memories/repo/\` — Repository memory: project-scoped persistent notes stored in the project's .opencode/ directory. Store codebase conventions, architecture decisions, build commands, verified practices, and project-specific facts here. These persist across sessions and are specific to this project.
 
 When to use each scope:
 - Use /memories/repo/ for anything specific to the current project (architecture, conventions, gotchas, build steps)
 - Use /memories/ for cross-project preferences (coding style, tool preferences, general patterns)
-- Use /memories/session/ for temporary working state within the current conversation
+- Use /memories/session/ for temporary working state within the current conversation — keep plans and progress notes up to date here
 
-IMPORTANT: Before creating new memory files, first view the /memories/ directory to understand what already exists. This helps avoid duplicates and maintain organized notes.
+Guidelines:
+- Keep entries short and concise. Prefer multiple focused files over a single large file.
+- Do NOT create unnecessary files. Only create memories when explicitly asked or when the information is clearly valuable for future interactions.
+- Update or remove outdated memories rather than accumulating stale information.
+- Before creating new memory files, first view the appropriate /memories/ directory to see what already exists — this helps avoid duplicates.
+- You can have up to 200 lines per file. For longer content, split into multiple files.
 
 Commands (all supported for all scopes):
 - \`view\`: View contents of a file or list directory contents.
@@ -255,10 +260,22 @@ Commands (all supported for all scopes):
 export const server = async ({ directory }: { directory: string; [key: string]: any }) => {
   const projectDir = directory
 
+  function readExperimentalConfig(): Record<string, string> {
+    try {
+      const p = path.join(configDir(), "execsa-config.json")
+      if (existsSync(p)) return JSON.parse(readFileSync(p, "utf-8"))
+    } catch {}
+    return {}
+  }
+
+  const expCfg = readExperimentalConfig()
+  const experimentalEnabled = expCfg.experimental_features === "true"
+
   const accessTimestamps = new Map<string, number>()
   let cleanupStarted = false
 
   function markAccessed(real: string) {
+    if (!experimentalEnabled) return
     accessTimestamps.set(real, Date.now())
   }
 
@@ -297,7 +314,7 @@ export const server = async ({ directory }: { directory: string; [key: string]: 
     try { cleanupStaleSessionDirs() } catch {}
   }
 
-  startCleanup()
+  if (experimentalEnabled) startCleanup()
 
   return {
     // ── Register the memory tool ──────────────────────────────────────────────
@@ -490,20 +507,21 @@ export const server = async ({ directory }: { directory: string; [key: string]: 
               }
 
               case "rename": {
-                if (!args.old_path) return "Error: old_path is required for rename"
+                const oldPath = args.old_path ?? args.path
+                if (!oldPath) return "Error: old_path or path is required for rename"
                 if (!args.new_path) return "Error: new_path is required for rename"
-                const renOldErr = validatePath(args.old_path)
+                const renOldErr = validatePath(oldPath)
                 if (renOldErr) return renOldErr
                 const renNewErr = validatePath(args.new_path)
                 if (renNewErr) return renNewErr
-                const from = resolvePath(args.old_path, sessionID, projectDir)
+                const from = resolvePath(oldPath, sessionID, projectDir)
                 const to = resolvePath(args.new_path, sessionID, projectDir)
                 if (from.scope !== to.scope)
                   return "Error: Cannot rename across different memory scopes."
-                if (isSessionPath(args.old_path)) markAccessed(from.real)
+                if (isSessionPath(oldPath)) markAccessed(from.real)
                 if (isSessionPath(args.new_path)) markAccessed(to.real)
                 const fromStat = statSync(from.real, { throwIfNoEntry: false })
-                if (!fromStat) return "Error: The path " + args.old_path + " does not exist"
+                if (!fromStat) return "Error: The path " + oldPath + " does not exist"
                 const toStat = statSync(to.real, { throwIfNoEntry: false })
                 if (toStat) return "Error: The destination " + args.new_path + " already exists"
                 ensure(path.dirname(to.real))
