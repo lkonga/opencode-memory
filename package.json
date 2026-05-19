@@ -1,0 +1,14 @@
+{
+  "name": "opencode-memory",
+  "version": "1.0.0",
+  "description": "Persistent memory tool plugin for OpenCode — adds /memories/ scoped storage across user, session, and repo tiers",
+  "type": "module",
+  "main": "index.ts",
+  "dependencies": {
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.0.0"
+  }
+}
