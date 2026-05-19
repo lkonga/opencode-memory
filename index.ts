@@ -32,7 +32,8 @@ function userMemoryRoot(): string {
 }
 
 function sessionMemoryRoot(sessionID: string): string {
-  return path.join(userMemoryRoot(), "session", sessionID)
+  const safe = sessionID.replace(/[^a-zA-Z0-9_.-]/g, "_")
+  return path.join(userMemoryRoot(), "session", safe)
 }
 
 function repoMemoryRoot(projectDir: string): string {
