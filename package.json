@@ -1,12 +1,20 @@
 {
-  "name": "opencode-memory-tool",
+  "name": "@lkonga/opencode-memory-tool",
   "version": "1.0.0",
-  "description": "Persistent memory tool plugin for OpenCode — adds /memories/ scoped storage across user, session, and repo tiers",
+  "description": "Persistent memory tool plugin for OpenCode \u2014 adds /memories/ scoped storage across user, session, and repo tiers",
   "type": "module",
   "main": "index.ts",
-  "files": ["index.ts", "README.md"],
-  "repository": {"type": "git", "url": "git+https://github.com/lkonga/opencode-memory.git"},
-  "publishConfig": {"access": "public"},
+  "files": [
+    "index.ts",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lkonga/opencode-memory.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
     "@opencode-ai/plugin": "*",
     "zod": "^4.3.6"
