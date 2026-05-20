@@ -28,13 +28,21 @@ Standalone OpenCode plugin that ports the `patch-memory` fork patch into an exte
 
 ## Installation
 
-Add to your `opencode.json`:
+### npm (recommended)
 
 ```json
 {
-  "plugin": [
-    "/path/to/opencode-memory"
-  ]
+  "plugin": ["opencode-memory"]
+}
+```
+
+### Local file path (npm not desired)
+
+If you don't want to install with npm, use `file://` paths. Add to `opencode.json`:
+
+```json
+{
+  "plugin": ["file:///path/to/opencode-memory/index.ts"]
 }
 ```
 
