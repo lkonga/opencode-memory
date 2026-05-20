@@ -291,6 +291,12 @@ export const plugin: Plugin = async (_ctx: { directory?: string }) => {
 
   const cfg = readConfig()
   const debugEnabled = cfg.debug_logging === "true"
+  const memoryEnabled = cfg.memory_tool_enabled !== "false"
+
+  if (!memoryEnabled) {
+    log("memory tool disabled via config")
+    return {}
+  }
 
   function log(...args: any[]) {
     if (!debugEnabled) return
