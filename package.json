@@ -1,5 +1,5 @@
 {
-  "name": "opencode-memory-plugin",
+  "name": "opencode-memory-tool",
   "version": "1.0.0",
   "description": "Persistent memory tool plugin for OpenCode — adds /memories/ scoped storage across user, session, and repo tiers",
   "type": "module",

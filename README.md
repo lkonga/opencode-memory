@@ -32,7 +32,7 @@ Standalone OpenCode plugin that ports the `patch-memory` fork patch into an exte
 
 ```json
 {
-  "plugin": ["opencode-memory-plugin"]
+  "plugin": ["opencode-memory-tool"]
 }
 ```
 
