@@ -392,7 +392,8 @@ export const plugin: Plugin = async (_ctx: { directory?: string }) => {
             .optional()
             .describe("Required for `insert`. The text to insert at the specified line."),
           view_range: z
-            .tuple([z.number(), z.number()])
+            .array(z.number())
+            .length(2)
             .optional()
             .describe(
               "Optional for `view`. A two-element array [start_line, end_line] (1-indexed) to view a specific range of lines.",
