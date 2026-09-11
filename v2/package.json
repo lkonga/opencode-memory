@@ -1,0 +1,16 @@
+{
+  "name": "opencode-memory-v2",
+  "private": true,
+  "version": "1.0.0",
+  "description": "OpenCode V2 plugin: persistent /memories/ tool + system prompt injection (public V2 plugin APIs only)",
+  "type": "module",
+  "main": "./server.mjs",
+  "exports": {
+    ".": "./server.mjs",
+    "./server": "./server.mjs",
+    "./memory-core": "./memory-core.mjs"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  }
+}
