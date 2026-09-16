@@ -1,9 +1,8 @@
 # opencode-memory — V2 port
 
 V2 implementation of the `memory` tool + memory system-prompt injection, built
-**only** on public V2 plugin APIs. The V1 implementation (`../index.ts`,
-`../index.test.ts`, `../package.json`, `../README.md`) is untouched and still
-loads as the V1 backend `file:///home/lkonga/codes/opencode-plugins/opencode-memory`.
+**only** on public V2 plugin APIs. V1 and V2 share the same hardened storage
+semantics while retaining their runtime-specific plugin adapters.
 
 ## Layout
 
@@ -11,6 +10,9 @@ loads as the V1 backend `file:///home/lkonga/codes/opencode-plugins/opencode-mem
 |------|---------|
 | `server.mjs` | V2 plugin entry (`export default { id, setup }`) — wiring only |
 | `memory-core.mjs` | Pure engine: scopes, path resolution, all read/write commands, context block |
+| `memory-safe-fs.mjs` | Contained, private, atomic filesystem operations |
+| `memory-context.mjs` | Bounded merged listings and prompt context |
+| `memory-access-ledger.mjs` | Best-effort persistent session access timestamps |
 | `test/memory-core.test.mjs` | Engine tests (scopes, CRUD, traversal, context) |
 | `test/server.test.mjs` | V2 API-surface tests (tool registration + context hook) |
 | `test/codemode-partition.test.mjs` | Effective-registry tests (direct vs Code Mode partition, direct dispatch) |
@@ -78,6 +80,6 @@ OPENCODE_CONFIG_DIR=/tmp/oc2-218-config XDG_DATA_HOME=/tmp/oc2-218-data \
   oc2 run --standalone --model omniroute/om-dsv4f '<prompt>'
 ```
 
-Evidence: `msg="loading plugin" ... entrypoint=file://.../opencode-memory/.worktrees/memory/v2/server.mjs`,
-tool result `Successfully created /memories/session/smoke-218.md`, and the model
-reporting the seeded `<userMemory>` token.
+The installed smoke must prove the plugin entrypoint, direct `memory` tool
+dispatch, session isolation, and seeded `<userMemory>` context against the exact
+deployed commit.

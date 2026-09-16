@@ -34,7 +34,7 @@ describe("path validation", () => {
     assert.equal(engine.resolvePath("/memories/repo/a.md", "s1").scope, "repo")
     assert.equal(
       engine.resolvePath("/memories/session/a.md", "s1").real,
-      path.join(userRoot, "session", "s1", "a.md"),
+      path.join(engine.sessionRoot("s1"), "a.md"),
     )
     assert.equal(
       engine.resolvePath("/memories/repo/a.md", "s1").real,
@@ -121,8 +121,8 @@ describe("read/write seam", () => {
   test("session scope is isolated per session and survives to disk", async () => {
     await engine.run({ command: "create", path: "/memories/session/s.md", file_text: "s-one" }, "sess-a")
     await engine.run({ command: "create", path: "/memories/session/s.md", file_text: "s-two" }, "sess-b")
-    assert.equal(await fs.readFile(path.join(userRoot, "session", "sess-a", "s.md"), "utf8"), "s-one")
-    assert.equal(await fs.readFile(path.join(userRoot, "session", "sess-b", "s.md"), "utf8"), "s-two")
+    assert.equal(await fs.readFile(path.join(engine.sessionRoot("sess-a"), "s.md"), "utf8"), "s-one")
+    assert.equal(await fs.readFile(path.join(engine.sessionRoot("sess-b"), "s.md"), "utf8"), "s-two")
   })
 
   test("repo scope writes under <project>/.opencode/memories", async () => {
@@ -164,8 +164,10 @@ describe("system prompt context", () => {
   })
 
   test("stale cleanup removes empty session dirs", async () => {
-    const emptyDir = path.join(userRoot, "session", "ghost")
+    const emptyDir = engine.sessionRoot("ghost")
     await fs.mkdir(emptyDir, { recursive: true })
+    const old = new Date(Date.now() - 15 * 24 * 60 * 60 * 1000)
+    await fs.utimes(emptyDir, old, old)
     const deleted = engine.cleanupStaleSessionDirs()
     assert.ok(deleted >= 1)
     assert.equal(await fs.stat(emptyDir).then(() => true, () => false), false)
@@ -184,5 +186,62 @@ describe("input schema", () => {
       "delete",
       "rename",
     ])
+  })
+})
+
+describe("strict runtime argument validation independent of the schema", () => {
+  const malformed = "Error: invalid arguments"
+  const cases = [
+    ["null arguments", null],
+    ["missing command", {}],
+    ["array arguments", []],
+    ["primitive arguments", "view"],
+    ["non-string command", { command: 7 }],
+    ["numeric path", { command: "view", path: 7 }],
+    ["numeric file_text", { command: "create", path: "/memories/a.md", file_text: 5 }],
+    ["numeric old_str", { command: "str_replace", path: "/memories/a.md", old_str: 5, new_str: "x" }],
+    ["numeric new_str", { command: "str_replace", path: "/memories/a.md", old_str: "a", new_str: 5 }],
+    ["numeric insert_text", { command: "insert", path: "/memories/a.md", insert_line: 0, insert_text: 5 }],
+    ["string insert_line", { command: "insert", path: "/memories/a.md", insert_line: "1", insert_text: "x" }],
+    ["fractional insert_line", { command: "insert", path: "/memories/a.md", insert_line: 1.5, insert_text: "x" }],
+    ["NaN insert_line", { command: "insert", path: "/memories/a.md", insert_line: Number.NaN, insert_text: "x" }],
+    ["infinite insert_line", { command: "insert", path: "/memories/a.md", insert_line: Number.POSITIVE_INFINITY, insert_text: "x" }],
+    ["short view_range", { command: "view", path: "/memories/a.md", view_range: [1] }],
+    ["long view_range", { command: "view", path: "/memories/a.md", view_range: [1, 2, 3] }],
+    ["non-array view_range", { command: "view", path: "/memories/a.md", view_range: "1,2" }],
+    ["fractional view_range", { command: "view", path: "/memories/a.md", view_range: [1.5, 2] }],
+    ["NaN view_range", { command: "view", path: "/memories/a.md", view_range: [Number.NaN, 2] }],
+    ["infinite view_range", { command: "view", path: "/memories/a.md", view_range: [1, Number.POSITIVE_INFINITY] }],
+    ["numeric old_path", { command: "rename", old_path: 3, new_path: "/memories/b.md" }],
+    ["numeric new_path", { command: "rename", old_path: "/memories/a.md", new_path: 3 }],
+  ]
+
+  test("returns one fixed text and outcome without throwing or coercing", async () => {
+    for (const [name, args] of cases) {
+      const result = await engine.runCommand(args, "sess")
+      assert.equal(result.text, malformed, name)
+      assert.equal(result.outcome.content, malformed, name)
+      assert.equal(result.outcome.ok, false, name)
+      assert.equal(result.outcome.type, "error", name)
+      assert.equal(result.outcome.code, "invalid_arguments", name)
+      assert.equal(await engine.run(args, "sess"), malformed, name)
+    }
+  })
+
+  test("keeps the historical unknown-command contract for unknown command strings", async () => {
+    assert.equal(await engine.run({ command: "nope" }, "sess"), "Error: unknown command")
+    assert.equal(await engine.run({ command: "" }, "sess"), "Error: unknown command")
+  })
+})
+
+describe("str_replace overlap detection", () => {
+  test("reports overlapping occurrences as non-unique and never rewrites", async () => {
+    const overlapEngine = createMemory({ projectDir: path.join(root, "overlap-project"), userRoot: path.join(root, "overlap-user") })
+    assert.equal(await overlapEngine.run({ command: "create", path: "/memories/aaa.md", file_text: "aaa" }, "s"), "Successfully created /memories/aaa.md")
+    assert.match(
+      await overlapEngine.run({ command: "str_replace", path: "/memories/aaa.md", old_str: "aa", new_str: "b" }, "s"),
+      /Multiple occurrences/,
+    )
+    assert.equal(await fs.readFile(path.join(root, "overlap-user", "aaa.md"), "utf8"), "aaa")
   })
 })

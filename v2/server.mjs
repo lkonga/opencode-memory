@@ -17,6 +17,7 @@ import path from "path"
 import {
   createMemory,
   defaultConfigDir,
+  errorCode,
   INPUT_SCHEMA,
   MEMORY_DESCRIPTION,
 } from "./memory-core.mjs"
@@ -42,11 +43,13 @@ export async function setupMemoryV2(ctx) {
   const config = readPluginConfig(configDir)
 
   const debug = options.debug_logging === true || config.debug_logging === "true"
-  const enabled = options.memory_tool_enabled !== false && config.memory_tool_enabled !== "false"
-  const log = debug ? (...args) => console.error("[memory-plugin-v2]", ...args) : () => {}
+  const disabledByOptions = options.memory_tool_enabled === false || options.memory_tool_enabled === "false"
+  const disabledByConfig = config.memory_tool_enabled === false || config.memory_tool_enabled === "false"
+  const enabled = !disabledByOptions && !disabledByConfig
+  const log = debug ? (code) => console.error(code) : () => {}
 
   if (!enabled) {
-    log("memory tool disabled via config")
+    log("MEMORY_DISABLED")
     return
   }
 
@@ -55,9 +58,18 @@ export async function setupMemoryV2(ctx) {
   const projectDir = options.projectDir ?? ctx?.location?.directory ?? process.cwd()
   const userRoot = options.userRoot ?? path.join(configDir, "memories")
 
-  const memory = createMemory({ projectDir, userRoot, log })
+  const memory = createMemory({
+    projectDir,
+    userRoot,
+    log,
+    now: options.now,
+    beforeCommit: options.beforeCommit,
+    beforeMutation: options.beforeMutation,
+    setInterval: options.setInterval,
+    clearInterval: options.clearInterval,
+  })
   memory.startCleanup()
-  log("plugin loaded", { projectDir, userRoot })
+  log("MEMORY_PLUGIN_LOADED")
 
   const registrations = []
 
@@ -90,7 +102,13 @@ export async function setupMemoryV2(ctx) {
       if (!sessionID) return
       if (!Array.isArray(event.system)) return
       if (event.system.some((part) => typeof part?.text === "string" && part.text.includes(SUBAGENT_MARKER))) return
-      const context = await memory.buildContext(sessionID)
+      let context
+      try {
+        context = await memory.buildContext(sessionID)
+      } catch (error) {
+        log(errorCode(error))
+        return
+      }
       if (context) event.system.push({ type: "text", text: context })
     }),
   )

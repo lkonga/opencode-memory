@@ -12,6 +12,7 @@ import path from "node:path"
 import { after, describe, test } from "node:test"
 
 import plugin, { PLUGIN_ID, setupMemoryV2 } from "../server.mjs"
+import { createMemory } from "../memory-core.mjs"
 
 // Initialized eagerly at module scope (top-level await) so the paths exist
 // before any nested `describe` test runs. A file-level `before()` hook is not
@@ -20,6 +21,7 @@ const root = await fs.mkdtemp(path.join(os.tmpdir(), "memory-v2-server-"))
 const projectDir = path.join(root, "project")
 const userRoot = path.join(root, "config", "memories")
 await fs.mkdir(projectDir, { recursive: true })
+const expectedEngine = createMemory({ projectDir, userRoot })
 
 function makeContext(overrides = {}) {
   const state = { tool: undefined, hook: undefined, hookName: undefined, registered: [] }
@@ -66,6 +68,7 @@ describe("tool registration through the public V2 tool domain", () => {
 
     assert.ok(state.tool, "draft.add must register a tool")
     assert.equal(state.tool.name, "memory")
+    assert.deepEqual(state.tool.options, { codemode: false })
     assert.equal(state.tool.input.type, "object")
     assert.equal(typeof state.tool.execute, "function")
 
@@ -84,15 +87,75 @@ describe("tool registration through the public V2 tool domain", () => {
       { sessionID: "sess-v2" },
     )
     assert.equal(session.content, "Successfully created /memories/session/plan.md")
-    assert.equal(await fs.readFile(path.join(userRoot, "session", "sess-v2", "plan.md"), "utf8"), "plan\n")
+    assert.equal(await fs.readFile(path.join(expectedEngine.sessionRoot("sess-v2"), "plan.md"), "utf8"), "plan\n")
+  })
+})
+
+describe("strict malformed-input handling at the direct tool handler boundary", () => {
+  const malformed = "Error: invalid arguments"
+  const inputs = [
+    ["null", null],
+    ["array", []],
+    ["primitive", "view"],
+    ["empty object", {}],
+    ["numeric command", { command: 7 }],
+    ["numeric path", { command: "view", path: 7 }],
+    ["numeric file_text", { command: "create", path: "/memories/malformed.md", file_text: 9 }],
+    ["numeric old_str", { command: "str_replace", path: "/memories/malformed.md", old_str: 9, new_str: "y" }],
+    ["short view_range", { command: "view", path: "/memories/malformed.md", view_range: [1] }],
+    ["long view_range", { command: "view", path: "/memories/malformed.md", view_range: [1, 2, 3] }],
+    ["NaN view_range", { command: "view", path: "/memories/malformed.md", view_range: [Number.NaN, 2] }],
+    ["infinite view_range", { command: "view", path: "/memories/malformed.md", view_range: [1, Number.POSITIVE_INFINITY] }],
+    ["fractional view_range", { command: "view", path: "/memories/malformed.md", view_range: [1.5, 2] }],
+    ["fractional insert_line", { command: "insert", path: "/memories/malformed.md", insert_line: 1.5, insert_text: "y" }],
+    ["NaN insert_line", { command: "insert", path: "/memories/malformed.md", insert_line: Number.NaN, insert_text: "y" }],
+    ["numeric old_path", { command: "rename", old_path: 9, new_path: "/memories/malformed2.md" }],
+    ["numeric new_path", { command: "rename", old_path: "/memories/malformed.md", new_path: 9 }],
+  ]
+
+  test("returns the same fixed text for every malformed shape and never writes", async () => {
+    const { ctx, state } = makeContext({ options: { projectDir, userRoot } })
+    await setupMemoryV2(ctx)
+    for (const [name, input] of inputs) {
+      const result = await state.tool.execute(input, { sessionID: "sess-malformed" })
+      assert.equal(result.content, malformed, name)
+    }
+    assert.equal(await fs.lstat(path.join(userRoot, "malformed.md")).then(() => true, () => false), false)
+    assert.equal(await fs.lstat(path.join(userRoot, "malformed2.md")).then(() => true, () => false), false)
+    assert.equal(state.tool.options.codemode, false)
+  })
+
+  test("keeps valid input contracts and the unknown-command text intact", async () => {
+    const { ctx, state } = makeContext({ options: { projectDir, userRoot } })
+    await setupMemoryV2(ctx)
+    const created = await state.tool.execute(
+      { command: "create", path: "/memories/malformed-ok.md", file_text: "aaa" },
+      { sessionID: "sess-malformed" },
+    )
+    assert.equal(created.content, "Successfully created /memories/malformed-ok.md")
+    const overlap = await state.tool.execute(
+      { command: "str_replace", path: "/memories/malformed-ok.md", old_str: "aa", new_str: "b" },
+      { sessionID: "sess-malformed" },
+    )
+    assert.match(overlap.content, /Multiple occurrences/)
+    assert.equal(await fs.readFile(path.join(userRoot, "malformed-ok.md"), "utf8"), "aaa")
+    const unknown = await state.tool.execute({ command: "nope" }, { sessionID: "sess-malformed" })
+    assert.equal(unknown.content, "Error: unknown command")
+    // An explicit empty old_str keeps its historical, more specific message.
+    const emptyOldStr = await state.tool.execute(
+      { command: "str_replace", path: "/memories/malformed-ok.md", old_str: "", new_str: "b" },
+      { sessionID: "sess-malformed" },
+    )
+    assert.equal(emptyOldStr.content, "Error: old_str must not be empty")
+    assert.equal(await fs.readFile(path.join(userRoot, "malformed-ok.md"), "utf8"), "aaa")
   })
 })
 
 describe("system prompt injection through the public V2 session context hook", () => {
   test("registers `context` and appends a SystemPart", async () => {
     await fs.writeFile(path.join(userRoot, "pref.md"), "MEMCTX-218-ZX9\n", "utf8")
-    await fs.mkdir(path.join(userRoot, "session", "sess-hook"), { recursive: true })
-    await fs.writeFile(path.join(userRoot, "session", "sess-hook", "plan.md"), "plan\n", "utf8")
+    await fs.mkdir(expectedEngine.sessionRoot("sess-hook"), { recursive: true })
+    await fs.writeFile(path.join(expectedEngine.sessionRoot("sess-hook"), "plan.md"), "plan\n", "utf8")
 
     const { ctx, state } = makeContext({ options: { projectDir, userRoot } })
     await setupMemoryV2(ctx)
@@ -127,15 +190,62 @@ describe("system prompt injection through the public V2 session context hook", (
     await state.hook(noSession)
     assert.equal(noSession.system.length, 0)
   })
+
+  test("degrades safely and logs only a sanitized code when context construction fails", async () => {
+    const outside = path.join(root, "context-outside")
+    const unsafeRoot = path.join(root, "context-symlink")
+    await fs.mkdir(outside, { recursive: true })
+    await fs.symlink(outside, unsafeRoot)
+    const messages = []
+    const originalError = console.error
+    console.error = (...args) => messages.push(args.join(" "))
+    try {
+      const { ctx, state } = makeContext({ options: { projectDir, userRoot: unsafeRoot, debug_logging: true } })
+      const cleanup = await setupMemoryV2(ctx)
+      const event = { sessionID: "context-failure", system: [{ type: "text", text: "base" }] }
+      await state.hook(event)
+      assert.deepEqual(event.system, [{ type: "text", text: "base" }])
+      assert.ok(messages.includes("ELOOP"))
+      assert.ok(messages.every((message) => /^[A-Z0-9_]{1,24}$/.test(message)))
+      assert.doesNotMatch(messages.join("\n"), /context-symlink|context-outside/)
+      await cleanup()
+    } finally {
+      console.error = originalError
+    }
+  })
 })
 
 describe("lifecycle", () => {
-  test("disable gate returns no registrations", async () => {
-    const { ctx, state } = makeContext({ options: { projectDir, userRoot, memory_tool_enabled: false } })
+  test("disable gate accepts boolean and string false from both options and config", async (t) => {
+    const cases = [
+      ["options boolean false", { option: false }],
+      ["options string false", { option: "false" }],
+      ["config boolean false", { config: false }],
+      ["config string false", { config: "false" }],
+    ]
+    for (const [name, value] of cases) await t.test(name, async () => {
+      const configDir = await fs.mkdtemp(path.join(root, "disabled-config-"))
+      if ("config" in value) {
+        await fs.writeFile(path.join(configDir, "execsa-config.json"), JSON.stringify({ memory_tool_enabled: value.config }))
+      }
+      const options = { projectDir, userRoot, configDir }
+      if ("option" in value) options.memory_tool_enabled = value.option
+      const { ctx, state } = makeContext({ options })
+      const cleanup = await setupMemoryV2(ctx)
+      assert.equal(cleanup, undefined)
+      assert.equal(state.tool, undefined)
+      assert.equal(state.hook, undefined)
+    })
+  })
+
+  test("enabled control still registers both public surfaces", async () => {
+    const configDir = await fs.mkdtemp(path.join(root, "enabled-config-"))
+    await fs.writeFile(path.join(configDir, "execsa-config.json"), JSON.stringify({ memory_tool_enabled: true }))
+    const { ctx, state } = makeContext({ options: { projectDir, userRoot, configDir, memory_tool_enabled: true } })
     const cleanup = await setupMemoryV2(ctx)
-    assert.equal(cleanup, undefined)
-    assert.equal(state.tool, undefined)
-    assert.equal(state.hook, undefined)
+    assert.equal(state.tool?.name, "memory")
+    assert.equal(state.hookName, "context")
+    await cleanup()
   })
 
   test("cleanup disposes both registrations", async () => {

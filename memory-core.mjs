@@ -1,15 +1,15 @@
 /**
- * Dependency-free V2 memory engine for the opencode-memory plugin.
+ * Dependency-free V1 memory engine for the opencode-memory plugin.
  *
- * Semantically equivalent to the V1 reference (`../memory-core.mjs`). The V2
- * plugin entry (`server.mjs`) only adapts this engine to the V2 plugin
+ * Semantically equivalent to the V2 reference (`v2/memory-core.mjs`). The V1
+ * plugin entry (`index.ts`) only adapts this engine to the V1 plugin/zod
  * contract — all path resolution, containment, durability, retention, and
  * context logic lives here.
  *
  * Command evaluation is exposed at two levels:
- *   - `run(args, sessionID)`        → the bare public string
+ *   - `run(args, sessionID)`        → the bare public V1 string
  *   - `runCommand(args, sessionID)` → `{ text, outcome }`
- * where `text` is the exact public string and `outcome` is the typed record
+ * where `text` is the exact V1 public string and `outcome` is the typed record
  * (`{ ok, type, code, content }`) used internally and by tests.
  */
 import fs from "node:fs/promises"
@@ -709,7 +709,7 @@ export function createMemory(options = {}) {
 
   const runOutcome = runCommand
 
-  /** Public entry point: the bare string the tool has always returned. */
+  /** Public V1 entry point: the bare string the tool has always returned. */
   async function run(args = {}, sessionID) {
     return (await runCommand(args, sessionID)).text
   }

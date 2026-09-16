@@ -5,6 +5,7 @@
  *   mkdtempSync + writeFileSync + rmSync in afterEach
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test"
+import { createHash } from "node:crypto"
 import {
   mkdtempSync,
   rmSync,
@@ -49,6 +50,11 @@ function createMockContext(sessionID = "test-session", directory = tempDir) {
     metadata: () => {},
     ask: async () => {},
   }
+}
+
+// Session memory lives in a deterministic sha256(sessionID) subdirectory.
+function sessionDirName(sessionID: string) {
+  return createHash("sha256").update(sessionID).digest("hex")
 }
 
 async function getTool(directory = tempDir) {
@@ -378,13 +384,20 @@ describe("Session isolation", () => {
       ctxB,
     )
 
-    // Verify on disk: session dirs are separate
+    // Verify on disk: session dirs are separate, keyed by sha256(sessionID)
     const sessionBase = join(configDir, "memories", "session")
-    expect(existsSync(join(sessionBase, "session-alpha", "check.md"))).toBe(true)
-    expect(existsSync(join(sessionBase, "session-beta", "check.md"))).toBe(true)
+    const alphaDir = sessionDirName("session-alpha")
+    const betaDir = sessionDirName("session-beta")
 
-    expect(readFileSync(join(sessionBase, "session-alpha", "check.md"), "utf8")).toBe("A")
-    expect(readFileSync(join(sessionBase, "session-beta", "check.md"), "utf8")).toBe("B")
+    expect(existsSync(join(sessionBase, alphaDir, "check.md"))).toBe(true)
+    expect(existsSync(join(sessionBase, betaDir, "check.md"))).toBe(true)
+
+    expect(readFileSync(join(sessionBase, alphaDir, "check.md"), "utf8")).toBe("A")
+    expect(readFileSync(join(sessionBase, betaDir, "check.md"), "utf8")).toBe("B")
+
+    // Raw session IDs must not be materialized as new session directories
+    expect(existsSync(join(sessionBase, "session-alpha"))).toBe(false)
+    expect(existsSync(join(sessionBase, "session-beta"))).toBe(false)
   })
 })
 
@@ -481,34 +494,76 @@ describe.skip("Cleanup", () => {
     expect(existsSync(emptyDir)).toBe(true)
     rmSync(testDir, { recursive: true, force: true })
   })
+})
 
-  // --- Disabled tool gating ---
+// ─── Batch 11: Disabled tool gating ───────────────────────────────────────────
+//
+// Lives outside the skipped Cleanup suite so the gating contract is actually
+// exercised. Writes a fresh execsa-config.json, points OPENCODE_CONFIG_DIR at
+// it, and returns a cleanup function.
 
-  describe("disabled tool gating", () => {
-    test("returns empty hooks when memory_tool_enabled=false", async () => {
-      const testDir = mkdtempSync(join(tmpdir(), "memory-disabled-"))
-      const configDir = join(testDir, "config")
-      mkdirSync(configDir, { recursive: true })
-      process.env.OPENCODE_CONFIG_DIR = configDir
-      writeFileSync(join(configDir, "execsa-config.json"), JSON.stringify({ memory_tool_enabled: "false" }))
+describe("Disabled tool gating", () => {
+  function useConfig(contents: Record<string, unknown>): () => void {
+    const testDir = mkdtempSync(join(tmpdir(), "memory-gating-"))
+    const gatingConfigDir = join(testDir, "config")
+    mkdirSync(gatingConfigDir, { recursive: true })
+    process.env.OPENCODE_CONFIG_DIR = gatingConfigDir
+    writeFileSync(join(gatingConfigDir, "execsa-config.json"), JSON.stringify(contents))
+    return () => rmSync(testDir, { recursive: true, force: true })
+  }
 
-      const hooks = await plugin({ directory: testDir })
+  test('JSON string "false" produces no registrations', async () => {
+    const cleanup = useConfig({ memory_tool_enabled: "false" })
+    try {
+      const hooks = await plugin({ directory: tempDir } as any)
       expect(hooks.tool).toBeUndefined()
       expect(hooks["experimental.chat.system.transform"]).toBeUndefined()
-      rmSync(testDir, { recursive: true, force: true })
-    })
+    } finally {
+      cleanup()
+    }
+  })
 
-    test("defaults to enabled when config not set", async () => {
-      const testDir = mkdtempSync(join(tmpdir(), "memory-default-"))
-      const configDir = join(testDir, "config")
-      mkdirSync(configDir, { recursive: true })
-      process.env.OPENCODE_CONFIG_DIR = configDir
-      writeFileSync(join(configDir, "execsa-config.json"), JSON.stringify({}))
+  test("JSON boolean false produces no registrations", async () => {
+    const cleanup = useConfig({ memory_tool_enabled: false })
+    try {
+      const hooks = await plugin({ directory: tempDir } as any)
+      expect(hooks.tool).toBeUndefined()
+      expect(hooks["experimental.chat.system.transform"]).toBeUndefined()
+    } finally {
+      cleanup()
+    }
+  })
 
-      const hooks = await plugin({ directory: testDir })
+  test('JSON string "true" registers tool and transform', async () => {
+    const cleanup = useConfig({ memory_tool_enabled: "true" })
+    try {
+      const hooks = await plugin({ directory: tempDir } as any)
       expect(hooks.tool?.memory).toBeDefined()
       expect(hooks["experimental.chat.system.transform"]).toBeDefined()
-      rmSync(testDir, { recursive: true, force: true })
-    })
+    } finally {
+      cleanup()
+    }
+  })
+
+  test("JSON boolean true registers tool and transform", async () => {
+    const cleanup = useConfig({ memory_tool_enabled: true })
+    try {
+      const hooks = await plugin({ directory: tempDir } as any)
+      expect(hooks.tool?.memory).toBeDefined()
+      expect(hooks["experimental.chat.system.transform"]).toBeDefined()
+    } finally {
+      cleanup()
+    }
+  })
+
+  test("defaults to enabled when config not set", async () => {
+    const cleanup = useConfig({})
+    try {
+      const hooks = await plugin({ directory: tempDir } as any)
+      expect(hooks.tool?.memory).toBeDefined()
+      expect(hooks["experimental.chat.system.transform"]).toBeDefined()
+    } finally {
+      cleanup()
+    }
   })
 })
