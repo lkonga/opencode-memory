@@ -2,22 +2,18 @@ import assert from "node:assert/strict"
 import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
-import { after, before, describe, test } from "node:test"
+import { after, describe, test } from "node:test"
 
 import { createMemory, INPUT_SCHEMA, validatePath } from "../memory-core.mjs"
 
-let root
-let projectDir
-let userRoot
-let engine
-
-before(async () => {
-  root = await fs.mkdtemp(path.join(os.tmpdir(), "memory-v2-core-"))
-  projectDir = path.join(root, "project")
-  userRoot = path.join(root, "config", "memories")
-  await fs.mkdir(projectDir, { recursive: true })
-  engine = createMemory({ projectDir, userRoot })
-})
+// Initialized eagerly at module scope (top-level await) so the state exists
+// before any nested `describe` test runs. A file-level `before()` hook is not
+// guaranteed to have run first on every Node version.
+const root = await fs.mkdtemp(path.join(os.tmpdir(), "memory-v2-core-"))
+const projectDir = path.join(root, "project")
+const userRoot = path.join(root, "config", "memories")
+await fs.mkdir(projectDir, { recursive: true })
+const engine = createMemory({ projectDir, userRoot })
 
 after(async () => {
   engine.stopCleanup()

@@ -13,6 +13,7 @@ loads as the V1 backend `file:///home/lkonga/codes/opencode-plugins/opencode-mem
 | `memory-core.mjs` | Pure engine: scopes, path resolution, all read/write commands, context block |
 | `test/memory-core.test.mjs` | Engine tests (scopes, CRUD, traversal, context) |
 | `test/server.test.mjs` | V2 API-surface tests (tool registration + context hook) |
+| `test/codemode-partition.test.mjs` | Effective-registry tests (direct vs Code Mode partition, direct dispatch) |
 
 ## Install (V2)
 
@@ -44,6 +45,21 @@ V2 imports as a promise plugin and adapts via `PluginPromise.fromPromise`
 
 The context hook receives a mutable `system: Array<SystemPart>`, where a
 `SystemPart` is `{ type: "text", text }` (`packages/ai/src/schema/messages.ts:14-25`).
+
+### Direct (native) exposure
+
+`memory` is registered with `options: { codemode: false }`. `Tool.Snapshot`
+partitions the active registrations on that flag
+(`packages/core/src/tool.ts:216-231`):
+
+- `options.codemode === false` → a **direct** model tool definition, dispatched
+  by name (`packages/core/src/tool.ts:248-249`)
+- omitted `options` → a **Code Mode** catalog entry, reachable only through the
+  synthetic `execute` tool
+
+So the model calls `memory` directly; no `execute`/Code Mode round-trip is
+required, and `memory` is absent from the Code Mode catalog. This is the V2
+equivalent of V1's native `tool: { memory: ... }` exposure.
 
 ## Tests
 

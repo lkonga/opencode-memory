@@ -9,13 +9,17 @@ import assert from "node:assert/strict"
 import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
-import { after, before, describe, test } from "node:test"
+import { after, describe, test } from "node:test"
 
 import plugin, { PLUGIN_ID, setupMemoryV2 } from "../server.mjs"
 
-let root
-let projectDir
-let userRoot
+// Initialized eagerly at module scope (top-level await) so the paths exist
+// before any nested `describe` test runs. A file-level `before()` hook is not
+// guaranteed to have run first on every Node version.
+const root = await fs.mkdtemp(path.join(os.tmpdir(), "memory-v2-server-"))
+const projectDir = path.join(root, "project")
+const userRoot = path.join(root, "config", "memories")
+await fs.mkdir(projectDir, { recursive: true })
 
 function makeContext(overrides = {}) {
   const state = { tool: undefined, hook: undefined, hookName: undefined, registered: [] }
@@ -40,13 +44,6 @@ function makeContext(overrides = {}) {
   }
   return { ctx, state }
 }
-
-before(async () => {
-  root = await fs.mkdtemp(path.join(os.tmpdir(), "memory-v2-server-"))
-  projectDir = path.join(root, "project")
-  userRoot = path.join(root, "config", "memories")
-  await fs.mkdir(projectDir, { recursive: true })
-})
 
 after(async () => {
   await fs.rm(root, { recursive: true, force: true })

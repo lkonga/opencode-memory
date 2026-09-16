@@ -68,6 +68,11 @@ export async function setupMemoryV2(ctx) {
         name: "memory",
         description: MEMORY_DESCRIPTION,
         input: INPUT_SCHEMA,
+        // Expose `memory` directly on the provider's native tool list.
+        // Tool.Snapshot partitions on `options.codemode === false`, so this
+        // keeps `memory` out of the Code Mode catalog (and therefore callable
+        // by name without an `execute` round-trip).
+        options: { codemode: false },
         execute: async (input, context) => ({
           content: await memory.run(input ?? {}, context?.sessionID),
         }),
