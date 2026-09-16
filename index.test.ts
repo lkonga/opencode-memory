@@ -404,6 +404,27 @@ describe("Session isolation", () => {
 // ─── Batch 9: System prompt injection ─────────────────────────────────────────
 
 describe("System prompt injection", () => {
+  // Minimal real-filesystem seeding shared by the agent-identity regression
+  // tests below, mirroring the setup style of the tests in this suite.
+  function seedUserMemory(name: string, content: string) {
+    const userMemDir = join(configDir, "memories")
+    mkdirSync(userMemDir, { recursive: true })
+    writeFileSync(join(userMemDir, name), content)
+  }
+
+  async function transformWithAgent(agent: string, system: string[]) {
+    const hooks = await plugin({ directory: tempDir } as any)
+    const transformFn = hooks["experimental.chat.system.transform"]
+    expect(transformFn).toBeDefined()
+
+    const output = { system }
+    await transformFn!(
+      { sessionID: "test-session", agent, model: { id: "test-model" } } as any,
+      output,
+    )
+    return output
+  }
+
   test("memory context injected when files exist", async () => {
     // Create user memory
     const userMemDir = join(configDir, "memories")
@@ -452,6 +473,42 @@ describe("System prompt injection", () => {
 
     // System array should have been modified (memory context added)
     expect(output.system.length).toBeGreaterThanOrEqual(1)
+  })
+
+  // Regression: injection is gated on agent identity, NOT on scanning system
+  // text. A parent/build agent whose system prompt happens to mention the
+  // subagent phrase must still receive seeded memory context.
+  test("build agent with subagent phrase in system text still receives memory context", async () => {
+    seedUserMemory("regression-prefs.md", "I prefer TypeScript")
+
+    const original = [
+      "You are a helpful assistant.",
+      "You may delegate work to an execution-focused subagent.",
+    ]
+    const output = await transformWithAgent("build", [...original])
+
+    expect(output.system.length).toBe(original.length + 1)
+    // Original system entries are preserved verbatim.
+    expect(output.system.slice(0, original.length)).toEqual(original)
+    const appended = output.system[output.system.length - 1]
+    expect(appended).toContain("<userMemory>")
+    expect(appended).toContain("I prefer TypeScript")
+  })
+
+  test("execsa agent receives no memory context even without the phrase in system text", async () => {
+    seedUserMemory("regression-execsa.md", "I prefer TypeScript")
+
+    const original = ["You are a helpful assistant."]
+    const output = await transformWithAgent("execsa", [...original])
+
+    // No context appended and the system array is left unchanged.
+    expect(output.system).toEqual(original)
+    expect(output.system.join("\n")).not.toContain("<userMemory>")
+
+    // Control: the same session has injectable context, so the skip above is
+    // identity-based rather than a vacuous "nothing to inject" pass.
+    const control = await transformWithAgent("build", [...original])
+    expect(control.system.join("\n")).toContain("<userMemory>")
   })
 })
 

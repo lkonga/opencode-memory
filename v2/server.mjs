@@ -24,7 +24,7 @@ import {
 
 export const PLUGIN_ID = "opencode-memory-v2"
 
-const SUBAGENT_MARKER = "execution-focused subagent"
+const isExecsaAgent = (agent) => typeof agent === "string" && agent.startsWith("execsa")
 
 function readPluginConfig(configDir) {
   try {
@@ -101,7 +101,7 @@ export async function setupMemoryV2(ctx) {
       const sessionID = event.sessionID
       if (!sessionID) return
       if (!Array.isArray(event.system)) return
-      if (event.system.some((part) => typeof part?.text === "string" && part.text.includes(SUBAGENT_MARKER))) return
+      if (isExecsaAgent(event.agent)) return
       let context
       try {
         context = await memory.buildContext(sessionID)

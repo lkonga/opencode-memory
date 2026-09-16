@@ -27,8 +27,8 @@ import {
   MEMORY_DESCRIPTION,
 } from "./memory-core.mjs"
 
-/** Marker that identifies the execsa subagent's system prompt. */
-const SUBAGENT_MARKER = "execution-focused subagent"
+/** Agent IDs reserved for execsa subagents. */
+const isExecsaAgent = (agent?: string): boolean => typeof agent === "string" && agent.startsWith("execsa")
 
 function configDir(): string {
   return defaultConfigDir()
@@ -151,14 +151,14 @@ export const plugin: Plugin = async (input, options) => {
 
     // ── Inject memory context into system prompt ──────────────────────────────
     "experimental.chat.system.transform": async (
-      hookInput: { sessionID?: string; model?: any },
+      hookInput: { sessionID?: string; agent?: string; model?: any },
       output: { system: string[] },
     ) => {
       const sessionID = hookInput?.sessionID
       if (!sessionID) return
 
       // Skip memory context injection for execsa subagent — it doesn't need project memories.
-      if (output.system.some((s) => s.includes(SUBAGENT_MARKER))) return
+      if (isExecsaAgent(hookInput?.agent)) return
 
       let memCtx: string | undefined
       try {

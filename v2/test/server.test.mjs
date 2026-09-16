@@ -175,20 +175,49 @@ describe("system prompt injection through the public V2 session context hook", (
     assert.match(event.system[1].text, /\/memories\/session\/plan\.md/)
   })
 
-  test("skips execsa subagent sessions and unknown sessions", async () => {
+  test("skips execsa agent sessions and unknown sessions", async () => {
     const { ctx, state } = makeContext({ options: { projectDir, userRoot } })
     await setupMemoryV2(ctx)
 
+    // Injection is gated on agent identity, not on system text: ordinary
+    // prompt text (no marker phrase) must still be skipped for `execsa`.
     const subagent = {
       sessionID: "sess-hook",
-      system: [{ type: "text", text: "You are an execution-focused subagent." }],
+      agent: "execsa",
+      system: [{ type: "text", text: "You are a helpful assistant." }],
     }
     await state.hook(subagent)
     assert.equal(subagent.system.length, 1)
+    assert.deepEqual(subagent.system, [{ type: "text", text: "You are a helpful assistant." }])
+
+    // Control: the same session has injectable context, so the skip above is
+    // identity-based rather than a vacuous "nothing to inject" pass.
+    const control = { sessionID: "sess-hook", agent: "build", system: [{ type: "text", text: "You are a helpful assistant." }] }
+    await state.hook(control)
+    assert.equal(control.system.length, 2)
+    assert.match(control.system[1].text, /<userMemory>/)
 
     const noSession = { sessionID: undefined, system: [] }
     await state.hook(noSession)
     assert.equal(noSession.system.length, 0)
+  })
+
+  // Regression: a parent/build agent whose system prompt mentions the subagent
+  // phrase must not be mistaken for a subagent and still receives memory context.
+  test("build agent with subagent phrase in system text still receives context", async () => {
+    await fs.writeFile(path.join(userRoot, "regression-v2.md"), "MEMCTX-218-REG\n", "utf8")
+
+    const { ctx, state } = makeContext({ options: { projectDir, userRoot } })
+    await setupMemoryV2(ctx)
+
+    const base = { type: "text", text: "You may delegate work to an execution-focused subagent." }
+    const event = { sessionID: "sess-hook", agent: "build", system: [base] }
+    await state.hook(event)
+
+    assert.equal(event.system.length, 2)
+    assert.deepEqual(event.system[0], base)
+    assert.equal(event.system[1].type, "text")
+    assert.match(event.system[1].text, /<userMemory>/)
   })
 
   test("degrades safely and logs only a sanitized code when context construction fails", async () => {
