@@ -4,8 +4,16 @@
   "description": "Persistent memory tool plugin for OpenCode \u2014 adds /memories/ scoped storage across user, session, and repo tiers",
   "type": "module",
   "main": "index.ts",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "test:full": "node --test test/*.test.mjs && bun test index.test.ts"
+  },
   "files": [
     "index.ts",
+    "memory-core.mjs",
+    "memory-context.mjs",
+    "memory-access-ledger.mjs",
+    "memory-safe-fs.mjs",
     "README.md"
   ],
   "repository": {
